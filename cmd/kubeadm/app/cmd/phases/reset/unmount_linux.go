@@ -24,6 +24,7 @@ import (
 	"strings"
 	"syscall"
 
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 )
 
@@ -40,6 +41,7 @@ func unmountKubeletDirectory(absoluteKubeletRunDirectory string) error {
 	}
 
 	mounts := strings.Split(string(raw), "\n")
+	errors := []error{}
 	for _, mount := range mounts {
 		m := strings.Split(mount, " ")
 		if len(m) < 2 || !strings.HasPrefix(m[1], absoluteKubeletRunDirectory) {
@@ -47,7 +49,8 @@ func unmountKubeletDirectory(absoluteKubeletRunDirectory string) error {
 		}
 		if err := syscall.Unmount(m[1], 0); err != nil {
 			klog.Warningf("[reset] Failed to unmount mounted directory in %s: %s", absoluteKubeletRunDirectory, m[1])
+			errors = append(errors, err)
 		}
 	}
-	return nil
+	return utilerrors.NewAggregate(errors)
 }
