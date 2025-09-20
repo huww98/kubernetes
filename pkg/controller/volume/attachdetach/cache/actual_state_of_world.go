@@ -80,7 +80,7 @@ type ActualStateOfWorld interface {
 	// Marks desire to detach the specified volume (remove the volume from the node's
 	// volumesToReportAsAttached list)
 	// Returns true if the update was propagated to the node object.
-	RemoveVolumeFromReportAsAttached(volumeName v1.UniqueVolumeName, nodeName types.NodeName) bool
+	RemoveVolumeFromReportAsAttached(logger klog.Logger, volumeName v1.UniqueVolumeName, nodeName types.NodeName) bool
 
 	// Unmarks the desire to detach for the specified volume (add the volume back to
 	// the node's volumesToReportAsAttached list)
@@ -302,10 +302,10 @@ func (asw *actualStateOfWorld) MarkVolumeAsDetached(
 }
 
 func (asw *actualStateOfWorld) RemoveVolumeFromReportAsAttached(
-	volumeName v1.UniqueVolumeName, nodeName types.NodeName) bool {
+	logger klog.Logger, volumeName v1.UniqueVolumeName, nodeName types.NodeName) bool {
 	asw.Lock()
 	defer asw.Unlock()
-	return asw.removeVolumeFromReportAsAttached(volumeName, nodeName)
+	return asw.removeVolumeFromReportAsAttached(logger, volumeName, nodeName)
 }
 
 func (asw *actualStateOfWorld) AddVolumeToReportAsAttached(
@@ -472,23 +472,22 @@ func (asw *actualStateOfWorld) getNodeAndVolume(
 // Remove the volumeName from the node's volumesToReportAsAttached list
 // This is an internal function and caller should acquire and release the lock
 func (asw *actualStateOfWorld) removeVolumeFromReportAsAttached(
-	volumeName v1.UniqueVolumeName, nodeName types.NodeName) bool {
+	logger klog.Logger, volumeName v1.UniqueVolumeName, nodeName types.NodeName) bool {
 
-	nodeToUpdate, nodeToUpdateExists := asw.nodesToUpdateStatusFor[nodeName]
-	if nodeToUpdateExists {
-		gen, nodeToUpdateVolumeExists :=
-			nodeToUpdate.volumesToReportAsAttached[volumeName]
-		if nodeToUpdateVolumeExists {
-			if gen < 0 {
-				nodeToUpdate.generation++
-				nodeToUpdate.volumesToReportAsAttached[volumeName] = nodeToUpdate.generation
-				asw.nodesToUpdateStatusFor[nodeName] = nodeToUpdate
-				asw.nodeUpdateHook(nodeName)
-			}
-			return false
-		}
+	nodeToUpdate := asw.nodesToUpdateStatusFor[nodeName]
+	gen, ok := nodeToUpdate.volumesToReportAsAttached[volumeName]
+	if !ok {
+		return true
 	}
-	return true
+	if gen < 0 {
+		nodeToUpdate.generation++
+		nodeToUpdate.volumesToReportAsAttached[volumeName] = nodeToUpdate.generation
+		asw.nodesToUpdateStatusFor[nodeName] = nodeToUpdate
+		logger.V(4).Info("Report volume as not attached to node",
+			"node", klog.KRef("", string(nodeName)), "volumeName", volumeName, "generation", nodeToUpdate.generation)
+		asw.nodeUpdateHook(nodeName)
+	}
+	return false
 }
 
 // Add the volumeName to the node's volumesToReportAsAttached list
@@ -561,7 +560,7 @@ func (asw *actualStateOfWorld) DeleteVolumeNode(
 	}
 
 	// Remove volume from volumes to report as attached
-	asw.removeVolumeFromReportAsAttached(volumeName, nodeName)
+	asw.removeVolumeFromReportAsAttached(klog.Background(), volumeName, nodeName)
 }
 
 func (asw *actualStateOfWorld) GetAttachState(
