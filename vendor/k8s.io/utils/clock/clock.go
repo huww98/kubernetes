@@ -31,8 +31,8 @@ type PassiveClock interface {
 type Clock interface {
 	PassiveClock
 	// After returns the channel of a new Timer.
-	// This method does not allow to free/GC the backing timer before it fires. Use
-	// NewTimer instead.
+	// As of Go 1.23, the garbage collector can recover unreferenced,
+	// unstopped timers. There is no reason to prefer NewTimer when After will do.
 	After(d time.Duration) <-chan time.Time
 	// NewTimer returns a new Timer.
 	NewTimer(d time.Duration) Timer
